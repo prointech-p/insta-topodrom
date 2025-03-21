@@ -135,6 +135,8 @@ class InstagramBot:
                 attempt_n += 1
     
                 btn_tags = self.driver.find_elements(By.XPATH, '//div[@role="button" and @tabindex="0"][contains(., "Не сейчас")]')
+                if (not btn_tags) or (len(btn_tags) == 0):
+                    btn_tags = self.driver.find_elements(By.XPATH, '//div[@role="button" and @tabindex="0"][contains(., "Not now")]')
                 print(len(btn_tags))
                 if btn_tags and len(btn_tags) == 1:
                     splash_screen_key = False
@@ -178,8 +180,6 @@ class InstagramBot:
         reels_tags = []
         reels_info = []
         processed_links = []
-        # Храним уникальные ссылки (set автоматически удаляет дубли)
-        unique_reels = set()
         step = 0
         attempts = 7
 
@@ -205,6 +205,8 @@ class InstagramBot:
                         reel_info['likes'] = get_insta_number(data_tags[0].get_attribute("textContent"))
                         reel_info['comments'] = get_insta_number(data_tags[1].get_attribute("textContent"))
                         reel_info['views'] = get_insta_number(data_tags[2].get_attribute("textContent"))
+                        reel_info['nick'] = ""
+                        reel_info['promo_code'] = ""
                         reels_info.append(reel_info)
                 # is_new = True
                 # links_dict = links_dict.copy()
@@ -252,8 +254,63 @@ class InstagramBot:
             else:
                 do_scroll = False
             # pprint(reel_info)
+
+        self.get_reels_nicks_and_promo(reels_info=reels_info, links_dict=links_dict)
+
         return reels_info
-    
+
+    def get_reels_nicks_and_promo(self, reels_info, links_dict):
+        print("Start")
+        attempts = 10
+        i = 0
+        while i < len(reels_info) and attempts > 0:
+            href = reels_info[i]['href'] 
+            if not bool(links_dict.get(href)):
+                attempts -= 1
+                try:
+                    self.driver.get(href)
+                    self.random_sleep()
+                    main_selector = 'main[role="main"]'
+                    main = self.driver.find_element(By.CSS_SELECTOR, main_selector)
+
+                    # Находим никнейм блогера
+                    header = main.find_element(By.CSS_SELECTOR, "header")
+                    a_tags = header.find_elements(By.CSS_SELECTOR, 'a')
+                    # for i, a in enumerate(a_tags):
+                    #     print(f"Ссылка {i+1}: {a.get_attribute('textContent').strip()}")
+
+                    nick = ''
+                    if len(a_tags) > 1:
+                        text1 = a_tags[0].get_attribute("textContent").strip() # Текст ссылки 1
+                        href2 = a_tags[1].get_attribute("href") # URL ссылки 2
+                        text2 = a_tags[1].get_attribute("textContent").strip() # Текст ссылки 2
+                        if text1 == 'topodrom':
+                            nick = 'topodrom'
+                        if not ("/reels/audio/" in href2):
+                            nick = text2
+
+                    reels_info[i]['nick'] = nick
+
+                    # print("Найден ник:", nick)
+
+                    # Находим промокод
+                    h1 = main.find_element(By.CSS_SELECTOR, 'h1[dir="auto"]')
+                    text = h1.text  # Получаем текст из элемента
+
+                    # Используем регулярное выражение для поиска слова после "по промокоду "
+                    match = re.search(r"промокоду (\S+)", text, re.IGNORECASE)
+
+                    if match:
+                        reels_info[i]['promo_code'] = match.group(1)  # Берём первое слово после фразы
+                    #     print("Найден промокод:", promo_code)
+                    # else:
+                    #     print("Фраза 'по промокоду' не найдена.")
+                except Exception as e:
+                    print(f"Произошла ошибка: {e}")
+            # Увеличиваем счётчик
+            i += 1
+                
+
     def random_sleep(self):
         # Рандомная задержка для эмуляции пользователя
         delay = random.uniform(self.min_delay, self.delay)
@@ -295,7 +352,9 @@ def add_reels_to_sheet(reels, sheet):
             reel['likes'], 
             reel['comments'],
             current_date,
-            current_datetime
+            current_datetime,
+            reel['nick'],
+            reel['promo_code'],
             ])
         # Добавляем строку в таблицу
     # sheet.append_row(row, value_input_option="USER_ENTERED")
@@ -305,6 +364,7 @@ def add_reels_to_sheet(reels, sheet):
     sheet.insert_rows(rows, row=2, value_input_option='USER_ENTERED')
 
 
+# Получаем список уже имеющихся Reels и проставляем признак парсинга Ника и Промокода 
 def get_links_dict(spreadsheet_id):
     sheet = get_sheet(spreadsheet_id, "Статистика")
     # Чтение данных из Google Таблицы
@@ -312,23 +372,29 @@ def get_links_dict(spreadsheet_id):
     links_dict = {}
     for item in all_data:
         if '/reel/' in item[4]:
-            links_dict[item[4]] = True
+            links_dict[item[4]] = bool(item[0] or item[1])
+            
     return links_dict
 
 
+# Функция запуска процесса парсинга
 def process_parsing():
     insta_username = os.getenv('INSTA_USERNAME')
     insta_password = os.getenv('INSTA_PASSWORD')
     show_browser = os.getenv('SHOW_BROWSER') == '1'
     spreadsheet_id = os.getenv('SPREADSHEET_ID')
 
-    # links_dict = get_links_dict(spreadsheet_id)
-    links_dict = []
+    links_dict = get_links_dict(spreadsheet_id)
+    # links_dict = []
+    pprint(links_dict)
+    print(len(links_dict))
 
     insta_bot = InstagramBot(show_browser)
     
     try:
         insta_bot.auth(insta_username=insta_username, insta_password=insta_password)
+        # insta_bot.get_reels_nicks_and_promo(reels_info=reels_info, links_dict=links_dict)
+
     
         reels = insta_bot.get_reels_list(username='topodrom', links_dict=links_dict, max_items=100)
     
@@ -337,6 +403,17 @@ def process_parsing():
     finally:
         insta_bot.close()
 
+
+
+reel_info = {}
+reels_info = []
+reel_info['href'] = "https://www.instagram.com/topodrom/reel/DHYVHtaoUTr/"
+reel_info['likes'] = "10"
+reel_info['comments'] = "1"
+reel_info['views'] = "100"
+reel_info['nick'] = ""
+reel_info['promocode'] = ""
+reels_info.append(reel_info)
 
 process_parsing()
 # d = get_links_dict()
