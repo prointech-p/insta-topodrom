@@ -153,13 +153,13 @@ class InstagramBot:
                     not_now_btn_tag.click()
                     time.sleep(self.delay)
         except:
-            pass
+            print("ERROR while Auth")
         
         # input("Нажмите Enter, чтобы продолжить...")
 
     def get_reels_list(self, username, links_dict, max_items=20):
-        print(f"{INSTAGRAM_URL}/{username}/reels/")
-        self.driver.get(f"{INSTAGRAM_URL}/{username}/reels/")
+        print(f"{INSTAGRAM_URL}{username}/reels/")
+        self.driver.get(f"{INSTAGRAM_URL}{username}/reels/")
         time.sleep(self.delay)
 
         # Находим body
@@ -263,7 +263,7 @@ class InstagramBot:
         print("Start")
         attempts = 10
         i = 0
-        while i < len(reels_info) and attempts > 0:
+        while i < len(reels_info) and attempts >= 0:
             href = reels_info[i]['href'] 
             if not bool(links_dict.get(href)):
                 attempts -= 1
@@ -377,6 +377,37 @@ def get_links_dict(spreadsheet_id):
     return links_dict
 
 
+# Получаем дату последнего импотрированного рилса 
+def get_last_import_date(spreadsheet_id):
+    # Открываем лист гугл-таблицы
+    sheet = get_sheet(spreadsheet_id, "Reels")
+    # Получаем значение из ячейки E2
+    result = sheet.get_values("E2:E2")  # Возвращает список списков
+    
+    return result[0][0] if result else "01.01.2000"  # Проверяем, есть ли данные
+
+
+def do_import_check(spreadsheet_id):
+    # Получаем дату из Google Таблицы
+    last_import_date_str = get_last_import_date(spreadsheet_id)
+
+    # Преобразуем в объект datetime.date
+    if last_import_date_str:
+        last_import_date = dt.strptime(last_import_date_str, "%d.%m.%Y").date()  # Формат: "дд.мм.гггг"
+    else:
+        last_import_date = None
+
+    # Текущая дата без времени
+    today = dt.today().date()
+
+    # Сравнение
+    if last_import_date >= today:
+        result = False
+    else:
+        result = True
+    return result
+
+
 # Функция запуска процесса парсинга
 def process_parsing():
     insta_username = os.getenv('INSTA_USERNAME')
@@ -384,9 +415,13 @@ def process_parsing():
     show_browser = os.getenv('SHOW_BROWSER') == '1'
     spreadsheet_id = os.getenv('SPREADSHEET_ID')
 
+    if not do_import_check(spreadsheet_id):
+        print("Импорт не требуется. Данные уже имеются.")
+        return
+    
     links_dict = get_links_dict(spreadsheet_id)
     # links_dict = []
-    pprint(links_dict)
+    # pprint(links_dict)
     print(len(links_dict))
 
     insta_bot = InstagramBot(show_browser)
@@ -405,15 +440,15 @@ def process_parsing():
 
 
 
-reel_info = {}
-reels_info = []
-reel_info['href'] = "https://www.instagram.com/topodrom/reel/DHYVHtaoUTr/"
-reel_info['likes'] = "10"
-reel_info['comments'] = "1"
-reel_info['views'] = "100"
-reel_info['nick'] = ""
-reel_info['promocode'] = ""
-reels_info.append(reel_info)
+# reel_info = {}
+# reels_info = []
+# reel_info['href'] = "https://www.instagram.com/topodrom/reel/DHYVHtaoUTr/"
+# reel_info['likes'] = "10"
+# reel_info['comments'] = "1"
+# reel_info['views'] = "100"
+# reel_info['nick'] = ""
+# reel_info['promocode'] = ""
+# reels_info.append(reel_info)
 
 process_parsing()
 # d = get_links_dict()
